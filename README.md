@@ -1,11 +1,9 @@
-# HALLUGUARD: Demystifying Data-Driven and Reasoning-Driven Hallucinations in LLMs [ICLR 2026]
+# <a href="https://arxiv.org/abs/2601.18753" style="color: black !important;"> HALLUGUARD: Demystifying Data-Driven and Reasoning-Driven Hallucinations in LLMs [ICLR 2026] </a>
 
 **Xinyue Zeng¹\*, Junhong Lin²\*, Yujun Yan³, Feng Guo¹, Liang Shi¹, Jun Wu⁴, Dawei Zhou¹**  
 *\* Equal contribution*
 
 ¹ Virginia Tech · ² MIT · ³ Dartmouth · ⁴ Michigan State University
-
-**arXiv:** [2601.18753v1](https://arxiv.org/abs/2601.18753)
 
 ---
 
