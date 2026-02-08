@@ -128,7 +128,7 @@ Using HALLUGUARD to guide beam search:
 │   ├── utils/               # Parallel and other utilities
 │   ├── data/                # Outputs and run logs
 │   ├── metrics_output/      # Benchmark CSV results (SQuAD, GSM8K, MATH-500, …)
-│   ├── LLMsKnow/            # LLMs-Know subproject (probing, correctness, resampling)
+│   ├── intrinsic_probe/     # Intrinsic probing (correctness, resampling)
 │   ├── gpu_evaluation_all.py
 │   ├── gpu_evaluation_llm.py
 │   ├── evaluation.py
