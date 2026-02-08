@@ -53,8 +53,10 @@ This is the first unified theoretical decomposition of hallucination emergence a
 To operationalize the bound, we derive a tractable, inference-time score:
 
 \[
-\text{HALLUGUARD}(\hat{u}) = \underbrace{\det(K)}_{\text{representation adequacy}} + \underbrace{\log \sigma_{\max}}_{\text{reasoning amplification}} - \underbrace{\frac{\log \kappa(K)}{2}}_{\text{spectral instability penalty}}
+\text{HALLUGUARD}(\hat{u}) = \underbrace{\det(K)}_{\text{representation adequacy}} + \underbrace{\log \sigma_{\max}}_{\text{reasoning amplification}} - \underbrace{\log \kappa(K)^2}_{\text{spectral instability penalty}}
 \]
+
+where \(K\) is the NTK Gram matrix (over generated outputs), \(\sigma_{\max}\) is the maximum per-step hidden-state Jacobian spectral norm over the rollout, and \(\kappa(K)\) is the condition number of \(K\).
 
 ### What each term actually does
 
@@ -62,12 +64,28 @@ To operationalize the bound, we derive a tractable, inference-time score:
 |------|----------|-----------------|
 | \(\det(K)\) | Semantic coverage | Flags factual / data gaps |
 | \(\log \sigma_{\max}\) | Step-wise Jacobian growth | Flags reasoning drift |
-| \(\log \kappa^2(K)\) | NTK conditioning | Penalizes brittle representations |
+| \(2\log \kappa(K)\) (penalty) | NTK conditioning | Penalizes brittle representations |
 
 - ✔ No labels  
 - ✔ No task heuristics  
 - ✔ No external retrieval  
 - ✔ Zero inference overhead  
+
+### Technical specification (code verification)
+
+The score must be assembled exactly as (per paper):
+
+```text
+HALLUGUARD = det(K) + log(σ_max) − log(κ(K)^2)
+```
+
+- **K**: NTK Gram from Jacobians of log-probabilities of generated tokens w.r.t. a fixed parameter subset; build \(G\) with rows \(g_t = \nabla_\theta f_t / \|g_t\|\) (one per decoding step), then \(K = G G^\top\). Eigenvalues of \(K\) are clamped with a small \(\varepsilon\) before taking \(\det(K)\) via \(\exp(\sum \log \lambda_i)\).
+- **σ_max**: Maximum over steps \(t\) of the spectral norm of the hidden-state Jacobian \(J_t = \partial h_t / \partial h_{t-1}\) (or an allowed Lipschitz proxy). Use \(\max_t\), not an average.
+- **κ(K)**: \(\lambda_{\max}(K) / (\lambda_{\min}(K) + \varepsilon)\); the penalty term is \(-2\log \kappa(K)\).
+
+Model must be frozen (no fine-tuning); generation must be stochastic (sampling or beam), not greedy.
+
+**Code vs. spec:** Default evaluation scripts now call the true implementation (`halluguard_true.py`) for NTK‑S3/HALLUGUARD. Proxy implementations remain in legacy helper code (e.g., `func/metric.py`) but are not used by default.
 
 ---
 
@@ -101,17 +119,27 @@ Using HALLUGUARD to guide beam search:
 
 ```
 .
-├── theory/                  # Hallucination Risk Bound derivations
-├── ntk/                     # NTK spectrum & Jacobian utilities
-├── src/
-│   ├── halluguard.py        # Core score computation
-│   ├── inference.py         # Score-guided decoding
-│   ├── eval.py              # Benchmark evaluation
-│   └── utils/
-├── experiments/             # Benchmark configs
-├── results/                 # Logged metrics
+├── Hallucination/           # Main evaluation and pipelines
+│   ├── halluguard_true.py   # Paper HALLUGUARD score: det(K) + log σ_max − log κ²
+│   ├── pipeline/            # Generation (generate.py, generate_simple.py, generate_minimal.py)
+│   ├── func/                # Metrics, evalFunc, plot
+│   ├── dataeval/            # Data loaders (SQuAD, TruthfulQA, CoQA, NQ-Open, TriviaQA, …)
+│   ├── models/              # Model loading, NLI, OpenAI helpers
+│   ├── utils/               # Parallel and other utilities
+│   ├── data/                # Outputs and run logs
+│   ├── metrics_output/      # Benchmark CSV results (SQuAD, GSM8K, MATH-500, …)
+│   ├── LLMsKnow/            # LLMs-Know subproject (probing, correctness, resampling)
+│   ├── gpu_evaluation_all.py
+│   ├── gpu_evaluation_llm.py
+│   ├── evaluation.py
+│   └── requirements.txt
+├── Beam Search/             # Score-guided beam search and reward models
+│   ├── reward_model/        # NTK reward uses halluguard_true (paper formula)
+│   └── run/                 # run_score, run_train
 └── README.md
 ```
+
+**Implementation note:** All evaluation scripts and pipelines use the paper HALLUGUARD implementation (`halluguard_true.py`): NTK Gram from per-step parameter gradients, Lipschitz proxy for σ_max, and score det(K) + log σ_max − log κ².
 
 ---
 
@@ -120,32 +148,30 @@ Using HALLUGUARD to guide beam search:
 ### Install
 
 ```bash
+cd Hallucination
 pip install -r requirements.txt
 ```
 
-### Compute HALLUGUARD score
+### Run pipeline (paper HALLUGUARD score)
 
-```python
-from halluguard import compute_score
+From the repo root or from `Hallucination/`:
 
-score = compute_score(
-    model=model,
-    input=x,
-    generation=y_hat
-)
+```bash
+./Hallucination/run_pipeline.sh --model gpt2 --dataset coqa --device cuda --num_generations_per_prompt 2 --fraction_of_data_to_use 0.01
 ```
 
-### Score-guided inference
+Or from `Hallucination/` with `PYTHONPATH=. python pipeline/generate_simple.py ...`. The pipeline computes the paper score (det(K) + log σ_max − log κ²) via `halluguard_true.py`.
 
-```python
-from inference import halluguard_beam_search
+### Evaluation scripts
 
-output = halluguard_beam_search(
-    model=model,
-    prompt=x,
-    beam_size=5
-)
-```
+- **GPU benchmarks:** `Hallucination/gpu_evaluation_all.py`, `Hallucination/gpu_evaluation_llm.py` — NTK-S3 uses the true HALLUGUARD score.
+- **Evaluation:** `Hallucination/evaluation.py` — same paper-aligned score.
+
+Put dataset files under `Hallucination/data/datasets/` (e.g. CoQA: `coqa-dev-v1.0.json`). See `Hallucination/README_PIPELINE.md` for options.
+
+### Score-guided inference (beam search)
+
+From `Beam Search/`, use the NTK reward model (paper formula) in beam search: `reward_model/ntk_reward.py`, `run/run_score.py`. The reward model imports `halluguard_true` from the repo’s `Hallucination` folder so the repo root must be the parent of both `Hallucination/` and `Beam Search/`.
 
 ---
 
