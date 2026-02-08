@@ -1,0 +1,1 @@
+{"model": "facebook/opt-125m", "dataset": "coqa", "device": "cpu", "fraction_of_data_to_use": 0.1, "num_generations_per_prompt": 10, "temperature": 0.5, "decoding_method": "greedy", "top_p": 0.99, "top_k": 10, "seed": 2023, "nprocess": null, "project_ind": 0}
