@@ -119,7 +119,7 @@ Using HALLUGUARD to guide beam search:
 
 ```
 .
-├── Hallucination/           # Main evaluation and pipelines
+├── Score/                   # Main evaluation and pipelines
 │   ├── halluguard_true.py   # Paper HALLUGUARD score: det(K) + log σ_max − log κ²
 │   ├── pipeline/            # Generation (generate.py, generate_simple.py, generate_minimal.py)
 │   ├── func/                # Metrics, evalFunc, plot
@@ -147,30 +147,30 @@ Using HALLUGUARD to guide beam search:
 ### Install
 
 ```bash
-cd Hallucination
+cd Score
 pip install -r requirements.txt
 ```
 
 ### Run pipeline (paper HALLUGUARD score)
 
-From the repo root or from `Hallucination/`:
+From the repo root or from `Score/`:
 
 ```bash
-./Hallucination/run_pipeline.sh --model gpt2 --dataset coqa --device cuda --num_generations_per_prompt 2 --fraction_of_data_to_use 0.01
+./Score/run_pipeline.sh --model gpt2 --dataset coqa --device cuda --num_generations_per_prompt 2 --fraction_of_data_to_use 0.01
 ```
 
-Or from `Hallucination/` with `PYTHONPATH=. python pipeline/generate_simple.py ...`. The pipeline computes the paper score (det(K) + log σ_max − log κ²) via `halluguard_true.py`.
+Or from `Score/` with `PYTHONPATH=. python pipeline/generate_simple.py ...`. The pipeline computes the paper score (det(K) + log σ_max − log κ²) via `halluguard_true.py`.
 
 ### Evaluation scripts
 
-- **GPU benchmarks:** `Hallucination/gpu_evaluation_all.py`, `Hallucination/gpu_evaluation_llm.py` — NTK-S3 uses the true HALLUGUARD score.
-- **Evaluation:** `Hallucination/evaluation.py` — same paper-aligned score.
+- **GPU benchmarks:** `Score/gpu_evaluation_all.py`, `Score/gpu_evaluation_llm.py` — NTK-S3 uses the true HALLUGUARD score.
+- **Evaluation:** `Score/evaluation.py` — same paper-aligned score.
 
-Put dataset files under `Hallucination/data/datasets/` (e.g. CoQA: `coqa-dev-v1.0.json`). See `Hallucination/README_PIPELINE.md` for options.
+Put dataset files under `Score/data/datasets/` (e.g. CoQA: `coqa-dev-v1.0.json`). See `Score/README_PIPELINE.md` for options.
 
 ### Score-guided inference (beam search)
 
-From `Beam Search/`, use the NTK reward model (paper formula) in beam search: `reward_model/ntk_reward.py`, `run/run_score.py`. The reward model imports `halluguard_true` from the repo’s `Hallucination` folder so the repo root must be the parent of both `Hallucination/` and `Beam Search/`.
+From `Beam Search/`, use the NTK reward model (paper formula) in beam search: `reward_model/ntk_reward.py`, `run/run_score.py`. The reward model imports `halluguard_true` from the repo’s `Score` folder; the repo root must be the parent of both `Score/` and `Beam Search/`.
 
 ---
 

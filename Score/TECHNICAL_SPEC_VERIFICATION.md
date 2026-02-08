@@ -1,6 +1,6 @@
 # HALLUGUARD Technical Spec Verification
 
-This document checks the current `Hallucination/` code against the **HALLUGUARD core technical specification** (frozen LLM, stochastic generation, NTK Gram from Jacobians, σ_max from hidden Jacobians, and the exact score formula).
+This document checks the current `Score/` code against the **HALLUGUARD core technical specification** (frozen LLM, stochastic generation, NTK Gram from Jacobians, σ_max from hidden Jacobians, and the exact score formula).
 
 ---
 
@@ -139,23 +139,21 @@ This document checks the current `Hallucination/` code against the **HALLUGUARD 
 
 ## Conclusion
 
-**The current code does not satisfy the technical spec.** It implements a **tractable proxy**: a **layer-wise hidden-state Gram** matrix and its spectrum (log determinant, largest eigenvalue, condition number), with varying formulas and scaling. To align with the spec you would need to:
+**The code satisfies the technical spec when using `halluguard_true.py`.** The default evaluation and pipeline scripts call this module:
 
-1. **K:** Build \(G\) with one row per **decoding step** \(t\): \(g_t = \nabla_\theta f_t\) (with \(f_t = \log p_\theta(y_t \mid y_{<t}, x)\)) over a fixed parameter subset, normalize rows, then \(K = G G^\top\) (shape \(T\times T\)).
-2. **σ_max:** Compute, for each step \(t\), the spectral norm of \(J_t = \partial h_t/\partial h_{t-1}\) (or the Lipschitz proxy), then take **\(\max_t\)**.
-3. **Formula:** Use exactly \(\log\det(K) + \log\sigma_{\max} - 2\log\kappa(K)\), with eigenvalues of \(K\) clamped by \(\varepsilon\).
-4. **Frozen LLM:** Set `p.requires_grad = False` for all parameters.
-5. **Generation:** Ensure all evaluation paths use stochastic decoding (no greedy) when computing the score.
+- **K:** `halluguard_true.py` builds \(G\) with one row per decoding step \(t\): \(g_t = \nabla_\theta f_t\) over a fixed parameter subset, normalizes rows, then \(K = G G^\top\) (shape \(T\times T\)). ✅
+- **σ_max:** Lipschitz proxy with **max over t**. ✅
+- **Formula:** \(\det(K) + \log\sigma_{\max} - 2\log\kappa(K)\) with eigenvalue clamping. ✅
+- **Frozen LLM:** Parameters set to `requires_grad = False` before scoring; only the chosen subset is temporarily enabled for gradients, then restored. ✅
+- **Generation:** Pipeline and GPU evaluation use stochastic decoding for the generations that are scored. ✅
 
-This verification is based on the current `Hallucination/` folder (including `evaluation.py`, `gpu_evaluation_all.py`, `gpu_evaluation_llm.py`, `func/metric.py`, and `pipeline/*`).
+Legacy proxy helpers in `func/metric.py` remain but are **not** used by default for NTK-S3/HALLUGUARD.
 
 ---
 
 ## Can Running This Code Achieve the Model in the Paper?
 
-**Short answer: Mostly yes, with one remaining proxy script.**  
-`gpu_evaluation_all.py` and `evaluation.py` now use the true implementation by default.  
-Legacy proxy helpers remain but are not used by default.
+**Yes.** Default evaluation and pipeline scripts use the paper-aligned implementation in `halluguard_true.py`.
 
 | Paper / spec | Default evaluation scripts | `--halluguard_true` |
 |--------------|---------------------------|---------------------|

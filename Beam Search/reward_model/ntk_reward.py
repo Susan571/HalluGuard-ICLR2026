@@ -1,11 +1,13 @@
 import os
 import sys
 
-# Ensure Hallucination (halluguard_true) is on path when running from Beam Search
+# Ensure Score (halluguard_true) is on path when running from Beam Search
 _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-_hallu_dir = os.path.join(_repo_root, "Hallucination")
-if os.path.isdir(_hallu_dir) and _hallu_dir not in sys.path:
-    sys.path.insert(0, _hallu_dir)
+for _hallu_dir_name in ("Score", "Hallucination"):
+    _hallu_dir = os.path.join(_repo_root, _hallu_dir_name)
+    if os.path.isdir(_hallu_dir) and _hallu_dir not in sys.path:
+        sys.path.insert(0, _hallu_dir)
+        break
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
