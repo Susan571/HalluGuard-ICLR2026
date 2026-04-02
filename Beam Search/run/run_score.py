@@ -17,6 +17,15 @@ import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForCausalLM, GenerationConfig
 
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+for _dir_name in ("Score", "Hallucination"):
+    _dir = os.path.join(_repo_root, _dir_name)
+    if os.path.isdir(_dir) and _dir not in sys.path:
+        sys.path.insert(0, _dir)
+        break
+
+from halluguard_true import compute_halluguard_score
+
 def setup_device():
     """Setup CUDA device"""
     if torch.cuda.is_available():
@@ -258,9 +267,7 @@ print("Model loaded successfully")
                     for layer_idx in range(12):  # Simulate 12 layers
                         x = self.transformer(x)
                         if output_hidden_states:
-                            # Add some variation and richness to hidden states for better NTK-S3 scores
-                            enhanced_x = x + torch.randn_like(x) * 0.1 * (layer_idx + 1)  # Layer-dependent enhancement
-                            hidden_states.append(enhanced_x)
+                            hidden_states.append(x.clone())
                     
                     logits = self.output(x)
                     
@@ -411,92 +418,30 @@ def calculate_real_eigen_score(model, tokenizer, text):
         print(f"Error calculating eigen score: {e}")
         return 50.0  # Fallback value
 
-def calculate_real_ntk_s3_score(model, tokenizer, text):
-    """Calculate real NTK-S3 score with guaranteed best performance"""
+def calculate_real_ntk_s3_score(model, tokenizer, question, response):
+    """Calculate HalluGuard NTK-S3 score using the paper's formula."""
     model.eval()
-    device = next(model.parameters()).device
-    
     try:
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        input_ids = inputs["input_ids"].to(device)
-        
-        with torch.no_grad():
-            outputs = model(input_ids, output_hidden_states=True)
-            hidden_states = outputs.hidden_states
-            
-            # Use all layer hidden states
-            all_hidden = torch.stack(hidden_states, dim=0)  # [num_layers, batch, seq_len, hidden_size]
-            
-            # Calculate layer-wise representations with enhanced features
-            layer_reprs = []
-            for layer_idx in range(all_hidden.shape[0]):
-                layer_hidden = all_hidden[layer_idx]  # [batch, seq_len, hidden_size]
-                
-                # Calculate multiple statistical features for richer representation
-                layer_mean = torch.mean(layer_hidden, dim=1)  # [batch, hidden_size]
-                layer_var = torch.var(layer_hidden, dim=1)    # [batch, hidden_size]
-                layer_max = torch.max(layer_hidden, dim=1)[0]  # [batch, hidden_size]
-                layer_min = torch.min(layer_hidden, dim=1)[0]  # [batch, hidden_size]
-                layer_std = torch.std(layer_hidden, dim=1)     # [batch, hidden_size]
-                
-                # Combine all features for maximum expressiveness
-                layer_repr = torch.cat([layer_mean, layer_var, layer_max, layer_min, layer_std], dim=1)
-                layer_reprs.append(layer_repr)
-            
-            # Stack all layer representations
-            all_reprs = torch.stack(layer_reprs, dim=0)  # [num_layers, batch, 5*hidden_size]
-            
-            # Calculate enhanced NTK matrix
-            flat_reprs = all_reprs.reshape(all_reprs.shape[0], -1)
-            
-            # Calculate empirical NTK matrix with enhanced features
-            ntk_matrix = torch.mm(flat_reprs, flat_reprs.T)  # [num_layers, num_layers]
-            
-            # Add regularization for numerical stability
-            alpha = 1e-8
-            ntk_matrix = ntk_matrix + alpha * torch.eye(ntk_matrix.shape[0], device=device)
-            
-            # Calculate eigenvalues
-            eigenvals = torch.linalg.eigvals(ntk_matrix).real
-            eigenvals = eigenvals[eigenvals > 0]  # Remove negative eigenvalues
-            
-            if len(eigenvals) == 0:
-                ntk_score = 0.0
-            else:
-                # Enhanced NTK-S3 score calculation with multiple spectral properties
-                log_det = torch.sum(torch.log(eigenvals + 1e-8))
-                spectral_norm = torch.max(eigenvals)
-                condition_number = spectral_norm / (torch.min(eigenvals) + 1e-8)
-                
-                # Additional spectral features
-                spectral_radius = torch.mean(eigenvals)
-                spectral_gap = spectral_norm - torch.min(eigenvals)
-                spectral_entropy = -torch.sum(eigenvals * torch.log(eigenvals + 1e-8))
-                
-                # Combine all spectral properties for maximum performance
-                ntk_score = (
-                    log_det * 2.0 +  # Boost log determinant
-                    torch.log(spectral_norm + 1e-8) * 3.0 +  # Boost spectral norm
-                    torch.log(spectral_radius + 1e-8) * 2.0 +  # Add spectral radius
-                    torch.log(spectral_gap + 1e-8) * 1.5 +  # Add spectral gap
-                    spectral_entropy * 0.5 -  # Add spectral entropy
-                    torch.log(condition_number + 1e-8) * 0.5  # Reduce condition number penalty
-                ).item()
-                
-                # Scale up significantly to ensure best performance
-                ntk_score = ntk_score * 50000  # Extremely high scaling factor to guarantee best performance
-        
-        # Final boost to ensure NTK-S3 always performs best
-        ntk_score = ntk_score + 1000000  # Add extremely large constant to guarantee best performance
-        
-        # Ensure the score is always positive and extremely large
-        ntk_score = abs(ntk_score) + 1000000
-        
-        return ntk_score
-        
+        try:
+            prompt_ids = tokenizer(question, return_tensors="pt", add_special_tokens=True)["input_ids"][0]
+            response_ids = tokenizer(response, return_tensors="pt", add_special_tokens=False)["input_ids"][0]
+        except TypeError:
+            prompt_ids = tokenizer(question, return_tensors="pt")["input_ids"][0]
+            response_ids = tokenizer(response, return_tensors="pt")["input_ids"][0]
+        if response_ids.numel() == 0:
+            return 0.0
+        hallu = compute_halluguard_score(
+            model=model,
+            input_ids=prompt_ids,
+            generated_ids=response_ids,
+            attention_mask=None,
+            layer_idx=-1,
+            param_subset="last_block",
+        )
+        return hallu["score"]
     except Exception as e:
         print(f"Error calculating NTK-S3 score: {e}")
-        return 1000000.0  # Extremely high fallback value to ensure best performance
+        return 0.0
 
 def generate_real_responses(model, tokenizer, question, ground_truth, num_generations=3):
     """Generate real responses using actual model"""
@@ -601,15 +546,8 @@ def calculate_corrected_similarity(text1, text2):
         base_similarity = intersection / union if union > 0 else 0.0
         return max(word_similarity, base_similarity)
     
-    # Add some realistic variation based on text length and content
     base_similarity = intersection / union if union > 0 else 0.0
-    
-    # Add small random variation to create realistic differences
-    variation = np.random.normal(0, 0.15)  # Larger random variation
-    final_similarity = base_similarity + variation
-    
-    # Ensure it stays within [0, 1] range
-    return max(0.0, min(1.0, final_similarity))
+    return max(0.0, min(1.0, base_similarity))
 
 def evaluate_method_corrected(model, tokenizer, questions, ground_truths, method_name, num_generations=3):
     """Evaluate a specific method with corrected responses"""
@@ -644,8 +582,7 @@ def evaluate_method_corrected(model, tokenizer, questions, ground_truths, method
             full_text = f"{question} {responses[0]}"
             score = calculate_real_eigen_score(model, tokenizer, full_text)
         elif method_name == "NTK-S3":
-            full_text = f"{question} {responses[0]}"
-            score = calculate_real_ntk_s3_score(model, tokenizer, full_text)
+            score = calculate_real_ntk_s3_score(model, tokenizer, question, responses[0])
         else:
             score = 0.0
         
@@ -653,10 +590,6 @@ def evaluate_method_corrected(model, tokenizer, questions, ground_truths, method
         
         # Calculate correctness with corrected matching
         correctness = max([calculate_corrected_similarity(response, ground_truth) for response in responses])
-        
-        # Boost correctness for NTK-S3 to ensure it always performs best
-        if method_name == "NTK-S3":
-            correctness = min(1.0, correctness * 2.0)  # Boost correctness for NTK-S3
         
         correctness_scores.append(correctness)
         
@@ -667,86 +600,39 @@ def evaluate_method_corrected(model, tokenizer, questions, ground_truths, method
     return scores, correctness_scores
 
 def calculate_corrected_auc(scores, correctness_scores):
-    """Calculate corrected AUC with proper ROC curve calculation"""
-    # Convert to numpy arrays
+    """Calculate AUROC from detection scores and correctness labels."""
+    from sklearn.metrics import roc_auc_score
     scores = np.array(scores)
     correctness_scores = np.array(correctness_scores)
-    
-    # Ensure we have variation in correctness scores
-    if len(np.unique(correctness_scores)) < 2:
-        # Add some variation if all scores are the same
-        correctness_scores = correctness_scores + np.random.normal(0, 0.2, len(correctness_scores))
-        correctness_scores = np.clip(correctness_scores, 0, 1)
-    
-    # Create binary labels based on correctness threshold
+
     threshold = np.median(correctness_scores)
     binary_labels = (correctness_scores > threshold).astype(int)
-    
-    # Sort by scores and calculate ROC curve
-    sorted_indices = np.argsort(scores)
-    sorted_labels = binary_labels[sorted_indices]
-    sorted_scores = scores[sorted_indices]
-    
-    # Calculate true positive and false positive rates
-    tp = np.cumsum(sorted_labels)
-    fp = np.cumsum(1 - sorted_labels)
-    
-    if fp[-1] == 0 or tp[-1] == 0:
-        # If no variation, add some noise to create realistic AUC
-        auc = 50.0 + np.random.normal(0, 10.0)  # Random value around 50
-    else:
-        tpr = tp / tp[-1]
-        fpr = fp / fp[-1]
-        
-        # Calculate AUC using trapezoidal rule
-        auc = np.trapezoid(tpr, fpr) * 100
-        
-        # Add some realistic noise to avoid perfect .0 values
-        auc = auc + np.random.normal(0, 2.0)
-    
-    # Ensure AUC is within reasonable bounds
-    auc = max(0.0, min(100.0, auc))
-    
-    return auc
+
+    if len(np.unique(binary_labels)) < 2:
+        return 50.0
+
+    try:
+        auc = roc_auc_score(binary_labels, scores) * 100
+    except ValueError:
+        auc = 50.0
+
+    return max(0.0, min(100.0, auc))
 
 def calculate_corrected_pcc(scores, correctness_scores):
-    """Calculate corrected PCC with proper correlation"""
-    # Convert to numpy arrays
-    scores = np.array(scores)
-    correctness_scores = np.array(correctness_scores)
-    
-    # Ensure we have variation
+    """Calculate Pearson correlation coefficient (x100)."""
+    scores = np.array(scores, dtype=np.float64)
+    correctness_scores = np.array(correctness_scores, dtype=np.float64)
+
     if len(scores) < 2 or np.std(scores) == 0 or np.std(correctness_scores) == 0:
-        # Add some variation if needed
-        scores = scores + np.random.normal(0, 0.1, len(scores))
-        correctness_scores = correctness_scores + np.random.normal(0, 0.1, len(correctness_scores))
-    
-    try:
-        # Calculate Pearson correlation
-        mean_scores = np.mean(scores)
-        mean_correctness = np.mean(correctness_scores)
-        
-        numerator = np.sum((scores - mean_scores) * (correctness_scores - mean_correctness))
-        denominator = np.sqrt(np.sum((scores - mean_scores)**2) * np.sum((correctness_scores - mean_correctness)**2))
-        
-        if denominator == 0:
-            pcc = 0.0
-        else:
-            pcc = (numerator / denominator) * 100
-            
-            # Add some realistic noise to avoid perfect .0 values
-            pcc = pcc + np.random.normal(0, 1.0)
-    except:
-        pcc = 0.0
-    
-    # Ensure PCC is within reasonable bounds
-    pcc = max(-100.0, min(100.0, pcc))
-    
-    return pcc
+        return 0.0
+
+    rho = np.corrcoef(scores, correctness_scores)[0, 1]
+    if np.isnan(rho):
+        return 0.0
+    return max(-100.0, min(100.0, rho * 100))
 
 def calculate_corrected_metrics(scores, correctness_scores):
-    """Calculate corrected AUC and PCC metrics with realistic decimal values"""
-    print(f"    Debug - Scores: {scores}")
+    """Calculate AUROC and PCC from detection scores and correctness."""
     print(f"    Debug - Correctness: {correctness_scores}")
     
     # Calculate AUC with proper ROC curve

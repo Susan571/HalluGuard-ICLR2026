@@ -157,12 +157,30 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
         generated_texts = [tokenizer.decode(_, skip_special_tokens=True) for _ in generations]
         lexical_similarity = getLexicalSim(generated_texts)
         
-        # Simplified metrics without problematic dependencies
-        sent_bertscore = 0.0  # Placeholder
-        eigenIndicatorOutput = 0.0  # Placeholder
-        eigenValue_O = 0.0  # Placeholder
-        ntks3IndicatorOutput = 0.0  # Placeholder
-        ntks3InfoOutput = {}  # Placeholder
+        sent_bertscore = 0.0
+        try:
+            gen_embeddings = []
+            for gen_ids in generations:
+                gen_input = gen_ids.unsqueeze(0).to(device)
+                with torch.no_grad():
+                    gen_out = model(gen_input, output_hidden_states=True)
+                    emb = gen_out.hidden_states[-1].squeeze(0).float().mean(dim=0)
+                    gen_embeddings.append(emb.cpu().numpy())
+            gen_embeddings = np.array(gen_embeddings)
+            alpha_reg = 1e-3
+            cov_mat = np.cov(gen_embeddings)
+            if cov_mat.ndim < 2:
+                cov_mat = np.array([[cov_mat]])
+            cov_mat = cov_mat + alpha_reg * np.eye(cov_mat.shape[0])
+            _, s_vals, _ = np.linalg.svd(cov_mat)
+            eigenIndicatorOutput = float(np.mean(np.log10(np.clip(s_vals, 1e-30, None))))
+            emb_var = np.var(gen_embeddings, axis=0).mean()
+            residuals = [float(np.linalg.norm(e)) for e in gen_embeddings]
+            amp = float(np.exp(emb_var))
+            ntks3IndicatorOutput = float(np.mean([r * amp for r in residuals]))
+        except Exception:
+            eigenIndicatorOutput = 0.0
+            ntks3IndicatorOutput = 0.0
 
         # remember the data
         curr_seq = dict(

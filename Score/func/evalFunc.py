@@ -119,121 +119,81 @@ def getAUROC(resultDict, file_name):
             Score.append(rougeScore)
 
 
-######### 计算AUROC ###########
-    fpr, tpr, thresholds = roc_curve(Label, Perplexity)
-    AUROC = auc(fpr, tpr)
-    # thresh_Perplexity = thresholds[np.argmax(tpr - fpr)]
-    thresh_Perplexity = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-Perplexity:", AUROC)
-    # print("thresh_Perplexity:", thresh_Perplexity)
-    VisAUROC(tpr, fpr, AUROC, "Perplexity")
+######### 计算AUROC + F1 + TPR@FPR ###########
+    all_methods = {
+        "Perplexity": Perplexity,
+        "Energy": Energy,
+        "Entropy": Entropy,
+        "LexicalSim": LexicalSimilarity,
+        "SentBertScore": SentBertScore,
+        "EigenScore": EigenIndicator,
+        "EigenScore-Output": EigenIndicatorOutput,
+        "NTK-S3 (HalluGuard)": NTKS3Indicator,
+        "NTK-S3-Output": NTKS3IndicatorOutput,
+    }
+    thresholds_dict = {}
+    for name, method_scores in all_methods.items():
+        fpr, tpr, thresholds = roc_curve(Label, method_scores)
+        AUROC = auc(fpr, tpr)
+        thresh = get_threshold(thresholds, tpr, fpr)
+        thresholds_dict[name] = thresh
 
-    fpr, tpr, thresholds = roc_curve(Label, Energy)
-    AUROC = auc(fpr, tpr)
-    # thresh_Energy = thresholds[np.argmax(tpr - fpr)]
-    thresh_Energy = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-Energy:", AUROC)
-    # print("thresh_Energy:", thresh_Energy)
-    VisAUROC(tpr, fpr, AUROC, "Energy")
+        f1 = getF1(Label, method_scores, thresh)
+        tpr_at_5 = getTPRatFPR(fpr, tpr, 0.05)
+        tpr_at_10 = getTPRatFPR(fpr, tpr, 0.10)
 
-
-    fpr, tpr, thresholds = roc_curve(Label, Entropy)
-    AUROC = auc(fpr, tpr)
-    # thresh_Entropy = thresholds[np.argmax(tpr - fpr)]
-    thresh_Entropy = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-Entropy:", AUROC)
-    # print("thresh_Entropy:", thresh_Entropy)
-    VisAUROC(tpr, fpr, AUROC, "NormalizedEntropy")
-
-    fpr, tpr, thresholds = roc_curve(Label, LexicalSimilarity)
-    AUROC = auc(fpr, tpr)
-    # thresh_LexicalSim = thresholds[np.argmax(tpr - fpr)]
-    thresh_LexicalSim = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-LexicalSim:", AUROC)
-    # print("thresh_LexicalSim:", thresh_LexicalSim)
-    VisAUROC(tpr, fpr, AUROC, "LexicalSim")
-
-    fpr, tpr, thresholds = roc_curve(Label, SentBertScore)
-    AUROC = auc(fpr, tpr)
-    # thresh_SentBertScore = thresholds[np.argmax(tpr - fpr)]
-    thresh_SentBertScore = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-SentBertScore:", AUROC)
-    # print("thresh_SentBertScore:", thresh_SentBertScore)
-    VisAUROC(tpr, fpr, AUROC, "SentBertScore")
-
-    fpr, tpr, thresholds = roc_curve(Label, EigenIndicator)
-    AUROC = auc(fpr, tpr)
-    # thresh_EigenScore = thresholds[np.argmax(tpr - fpr)]
-    thresh_EigenScore = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-EigenScore:", AUROC)
-    # print("thresh_EigenScore:", thresh_EigenScore)
-    VisAUROC(tpr, fpr, AUROC, "EigenScore", file_name.split("_")[1])
-
-    fpr, tpr, thresholds = roc_curve(Label, EigenIndicatorOutput)
-    AUROC = auc(fpr, tpr)
-    # thresh_EigenScoreOutput = thresholds[np.argmax(tpr - fpr)]
-    thresh_EigenScoreOutput = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-EigenScore-Output:", AUROC)
-    # print("thresh_EigenScoreOutput:", thresh_EigenScoreOutput)
-    VisAUROC(tpr, fpr, AUROC, "EigenScoreOutput", file_name.split("_")[1])
-
-    fpr, tpr, thresholds = roc_curve(Label, NTKS3Indicator)
-    AUROC = auc(fpr, tpr)
-    thresh_NTKS3Score = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-NTK-S3:", AUROC)
-    VisAUROC(tpr, fpr, AUROC, "NTK-S3", file_name.split("_")[1])
-
-    fpr, tpr, thresholds = roc_curve(Label, NTKS3IndicatorOutput)
-    AUROC = auc(fpr, tpr)
-    thresh_NTKS3ScoreOutput = get_threshold(thresholds, tpr, fpr)
-    print("AUROC-NTK-S3-Output:", AUROC)
-    VisAUROC(tpr, fpr, AUROC, "NTK-S3-Output", file_name.split("_")[1])
+        print(f"--- {name} ---")
+        print(f"  AUROC:       {AUROC:.4f}")
+        print(f"  F1:          {f1:.4f}")
+        print(f"  TPR@5%FPR:   {tpr_at_5:.4f}")
+        print(f"  TPR@10%FPR:  {tpr_at_10:.4f}")
+        try:
+            VisAUROC(tpr, fpr, AUROC, name, file_name.split("_")[1])
+        except Exception:
+            pass
 
 
 ######## 计算皮尔逊相关系数 ###############
-    rho_Perplexity = getPCC(Score, Perplexity)
-    rho_Entropy = getPCC(Score, Entropy)
-    rho_Energy = getPCC(Score, Energy)
-    rho_LexicalSimilarity = getPCC(Score, LexicalSimilarity)
-    rho_EigenIndicator = getPCC(Score, EigenIndicator)
-    rho_EigenIndicatorOutput = getPCC(Score, EigenIndicatorOutput)
-    rho_NTKS3Indicator = getPCC(Score, NTKS3Indicator)
-    rho_NTKS3IndicatorOutput = getPCC(Score, NTKS3IndicatorOutput)
-    print("rho_Perplexity:", rho_Perplexity)
-    print("rho_Energy:", rho_Energy)
-    print("rho_Entropy:", rho_Entropy)
-    print("rho_LexicalSimilarity:", rho_LexicalSimilarity)
-    print("rho_EigenScore:", rho_EigenIndicator)
-    print("rho_EigenScoreOutput:", rho_EigenIndicatorOutput)
-    print("rho_NTK-S3:", rho_NTKS3Indicator)
-    print("rho_NTK-S3-Output:", rho_NTKS3IndicatorOutput)
+    print("\n--- Pearson Correlation Coefficients ---")
+    for name, method_scores in all_methods.items():
+        rho = getPCC(Score, method_scores)
+        print(f"  PCC-{name}: {rho:.4f}")
 
 
 
 ######### 计算幻觉检测准确率(TruthfulQA)
     if "TruthfulQA" in file_name:
-        acc = getTruthfulQAAccuracy(Label, Perplexity, thresh_Perplexity)
-        print("TruthfulQA Perplexity Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, Energy, thresh_Energy)
-        print("TruthfulQA Energy Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, Entropy, thresh_Entropy)
-        print("TruthfulQA Entropy Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, LexicalSimilarity, thresh_LexicalSim)
-        print("TruthfulQA LexicalSimilarity Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, SentBertScore, thresh_SentBertScore)
-        print("TruthfulQA SentBertScore Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, EigenIndicator, thresh_EigenScore)
-        print("TruthfulQA EigenIndicator Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, EigenIndicatorOutput, thresh_EigenScoreOutput)
-        print("TruthfulQA EigenIndicatorOutput Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, NTKS3Indicator, thresh_NTKS3Score)
-        print("TruthfulQA NTK-S3 Accuracy:", acc)
-        acc = getTruthfulQAAccuracy(Label, NTKS3IndicatorOutput, thresh_NTKS3ScoreOutput)
-        print("TruthfulQA NTK-S3-Output Accuracy:", acc)
+        for name, method_scores in all_methods.items():
+            thresh = thresholds_dict[name]
+            acc = getTruthfulQAAccuracy(Label, method_scores, thresh)
+            print(f"TruthfulQA {name} Accuracy: {acc:.4f}")
 
 
 
-# 查找最佳阈值
+def getF1(labels, scores, threshold):
+    """Compute F1 score at the given threshold."""
+    preds = [1 if s >= threshold else 0 for s in scores]
+    tp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 1)
+    fp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 0)
+    fn = sum(1 for p, l in zip(preds, labels) if p == 0 and l == 1)
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
+
+
+def getTPRatFPR(fpr_arr, tpr_arr, target_fpr):
+    """Interpolate TPR at a specific FPR operating point."""
+    fpr_arr = np.array(fpr_arr)
+    tpr_arr = np.array(tpr_arr)
+    if len(fpr_arr) == 0:
+        return 0.0
+    idx = np.searchsorted(fpr_arr, target_fpr, side='right') - 1
+    idx = max(0, min(idx, len(fpr_arr) - 1))
+    return float(tpr_arr[idx])
+
+
 def get_threshold(thresholds, tpr, fpr):
     gmean = np.sqrt(tpr * (1 - fpr))
     index = np.argmax(gmean)

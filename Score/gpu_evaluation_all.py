@@ -265,14 +265,10 @@ print("Model loaded successfully")
                 def forward(self, input_ids, labels=None, output_hidden_states=False, **kwargs):
                     x = self.embedding(input_ids)
                     hidden_states = []
-                    
-                    # Simulate transformer layers with enhanced representations
-                    for layer_idx in range(12):  # Simulate 12 layers
+                    for layer_idx in range(12):
                         x = self.transformer(x)
                         if output_hidden_states:
-                            # Add some variation and richness to hidden states for better NTK-S3 scores
-                            enhanced_x = x + torch.randn_like(x) * 0.1 * (layer_idx + 1)  # Layer-dependent enhancement
-                            hidden_states.append(enhanced_x)
+                            hidden_states.append(x.clone())
                     
                     logits = self.output(x)
                     
@@ -450,250 +446,182 @@ def calculate_real_ntk_s3_score(model, tokenizer, prompt, response, param_subset
         return 0.0
 
 def calculate_real_inside_score(model, tokenizer, text):
-    """Calculate INSIDE score - high performance method"""
+    """INSIDE: eigenvalue decomposition of hidden-state covariance across layers."""
     model.eval()
     device = next(model.parameters()).device
-    
     try:
         inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         input_ids = inputs["input_ids"].to(device)
-        
         with torch.no_grad():
             outputs = model(input_ids, output_hidden_states=True)
             hidden_states = outputs.hidden_states
-            
-            # Use the last layer hidden states
-            last_hidden = hidden_states[-1]  # [batch, seq_len, hidden_size]
-            
-            # Calculate INSIDE score based on hidden state variance and attention patterns
-            hidden_var = torch.var(last_hidden, dim=1)  # [batch, hidden_size]
-            inside_score = torch.mean(hidden_var).item()
-            
-            # Scale to match expected performance (0.88)
-            inside_score = 0.88 + np.random.normal(0, 0.02)
-        
-        return inside_score
-        
+            layer_means = [hs.squeeze(0).mean(dim=0) for hs in hidden_states]
+            layer_means = torch.stack(layer_means).float()
+            centered = layer_means - layer_means.mean(dim=0, keepdim=True)
+            cov = centered.T @ centered / max(centered.shape[0] - 1, 1)
+            eigvals = torch.linalg.eigvalsh(cov)
+            eigvals = torch.clamp(eigvals, min=1e-8)
+            score = torch.sum(torch.log(eigvals)).item()
+        return score
     except Exception as e:
         print(f"Error calculating INSIDE score: {e}")
-        return 0.88  # Expected performance
+        return 0.0
 
 def calculate_real_mind_score(model, tokenizer, text):
-    """Calculate MIND score - high performance method"""
+    """MIND: divergence between mid-layer and last-layer representations."""
     model.eval()
     device = next(model.parameters()).device
-    
     try:
         inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         input_ids = inputs["input_ids"].to(device)
-        
         with torch.no_grad():
             outputs = model(input_ids, output_hidden_states=True)
             hidden_states = outputs.hidden_states
-            
-            # Use multiple layer hidden states for MIND
-            mid_layer = hidden_states[len(hidden_states)//2]  # Middle layer
-            mid_hidden = mid_layer  # [batch, seq_len, hidden_size]
-            
-            # Calculate MIND score based on middle layer representations
-            mind_score = torch.mean(torch.std(mid_hidden, dim=1)).item()
-            
-            # Scale to match expected performance (0.86)
-            mind_score = 0.86 + np.random.normal(0, 0.02)
-        
-        return mind_score
-        
+            mid_idx = len(hidden_states) // 2
+            mid_h = hidden_states[mid_idx].squeeze(0).float()
+            last_h = hidden_states[-1].squeeze(0).float()
+            mid_n = F.normalize(mid_h, dim=-1)
+            last_n = F.normalize(last_h, dim=-1)
+            score = (mid_n * last_n).sum(dim=-1).mean().item()
+        return score
     except Exception as e:
         print(f"Error calculating MIND score: {e}")
-        return 0.86  # Expected performance
+        return 0.0
 
-def calculate_real_semantic_entropy(model, tokenizer, text):
-    """Calculate Semantic Entropy score"""
-    model.eval()
-    device = next(model.parameters()).device
-    
+def calculate_real_semantic_entropy(responses):
+    """Semantic entropy: cluster generations by lexical overlap, compute entropy over clusters."""
+    if not responses or len(responses) < 2:
+        return 0.0
     try:
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        input_ids = inputs["input_ids"].to(device)
-        
-        with torch.no_grad():
-            outputs = model(input_ids)
-            logits = outputs.logits[:, :-1, :]  # Remove last token
-            
-            # Calculate semantic entropy with enhanced features
-            probs = torch.softmax(logits, dim=-1)
-            entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=-1)
-            
-            # Add semantic variation based on text length
-            text_length = input_ids.shape[1]
-            semantic_boost = torch.exp(-text_length / 100.0)  # Decay with length
-            
-            semantic_entropy = (entropy * semantic_boost).mean().item()
-            
-            # Scale to match expected performance (0.84)
-            semantic_entropy = 0.84 + np.random.normal(0, 0.02)
-        
-        return semantic_entropy
-        
+        clusters = []
+        for resp in responses:
+            resp_words = set(resp.lower().split())
+            placed = False
+            for cluster in clusters:
+                ref_words = set(cluster[0].lower().split())
+                union = len(resp_words | ref_words)
+                if union == 0:
+                    continue
+                overlap = len(resp_words & ref_words) / union
+                if overlap > 0.3:
+                    cluster.append(resp)
+                    placed = True
+                    break
+            if not placed:
+                clusters.append([resp])
+        total = sum(len(c) for c in clusters)
+        if total == 0:
+            return 0.0
+        probs = [len(c) / total for c in clusters]
+        entropy = -sum(p * np.log(p + 1e-12) for p in probs)
+        return entropy
     except Exception as e:
         print(f"Error calculating semantic entropy: {e}")
-        return 0.84  # Expected performance
+        return 0.0
 
-def calculate_real_selfcheckgpt_score(model, tokenizer, text):
-    """Calculate SelfCheckGPT score"""
-    model.eval()
-    device = next(model.parameters()).device
-    
+def calculate_real_selfcheckgpt_score(responses):
+    """SelfCheckGPT: pairwise word-overlap consistency across generations."""
+    if not responses or len(responses) < 2:
+        return 0.0
     try:
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        input_ids = inputs["input_ids"].to(device)
-        
-        with torch.no_grad():
-            outputs = model(input_ids, output_hidden_states=True)
-            hidden_states = outputs.hidden_states
-            
-            # Use multiple layers for SelfCheckGPT
-            layer_scores = []
-            for layer_hidden in hidden_states[::2]:  # Every other layer
-                layer_var = torch.var(layer_hidden, dim=1)
-                layer_scores.append(torch.mean(layer_var).item())
-            
-            # Combine layer scores
-            selfcheck_score = np.mean(layer_scores)
-            
-            # Scale to match expected performance (0.83)
-            selfcheck_score = 0.83 + np.random.normal(0, 0.02)
-        
-        return selfcheck_score
-        
+        consistencies = []
+        for i in range(len(responses)):
+            for j in range(i + 1, len(responses)):
+                wi = set(responses[i].lower().split())
+                wj = set(responses[j].lower().split())
+                union = len(wi | wj)
+                if union == 0:
+                    consistencies.append(0.0)
+                    continue
+                consistencies.append(len(wi & wj) / union)
+        return np.mean(consistencies) if consistencies else 0.0
     except Exception as e:
         print(f"Error calculating SelfCheckGPT score: {e}")
-        return 0.83  # Expected performance
+        return 0.0
 
-def calculate_real_race_score(model, tokenizer, text):
-    """Calculate RACE score"""
+def calculate_real_race_score(model, tokenizer, responses):
+    """RACE: representation agreement (avg pairwise cosine sim) across generations."""
     model.eval()
     device = next(model.parameters()).device
-    
+    if not responses or len(responses) < 2:
+        return 0.0
     try:
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
-        input_ids = inputs["input_ids"].to(device)
-        
-        with torch.no_grad():
-            outputs = model(input_ids, output_hidden_states=True)
-            hidden_states = outputs.hidden_states
-            
-            # Use attention-weighted representations for RACE
-            last_hidden = hidden_states[-1]
-            attention_weights = torch.softmax(torch.matmul(last_hidden, last_hidden.transpose(-2, -1)) / np.sqrt(last_hidden.size(-1)), dim=-1)
-            
-            # Calculate RACE score based on attention patterns
-            race_score = torch.mean(attention_weights).item()
-            
-            # Scale to match expected performance (0.85)
-            race_score = 0.85 + np.random.normal(0, 0.02)
-        
-        return race_score
-        
+        embeddings = []
+        for resp in responses:
+            inputs = tokenizer(resp, return_tensors="pt", truncation=True, max_length=256)
+            input_ids = inputs["input_ids"].to(device)
+            with torch.no_grad():
+                outputs = model(input_ids, output_hidden_states=True)
+                emb = outputs.hidden_states[-1].squeeze(0).float().mean(dim=0)
+                embeddings.append(emb)
+        embeddings = torch.stack(embeddings)
+        embeddings = F.normalize(embeddings, dim=-1)
+        sim = embeddings @ embeddings.T
+        n = sim.shape[0]
+        mask = ~torch.eye(n, dtype=torch.bool, device=device)
+        score = sim[mask].mean().item()
+        return score
     except Exception as e:
         print(f"Error calculating RACE score: {e}")
-        return 0.85  # Expected performance
+        return 0.0
 
 def calculate_real_lnpe_score(model, tokenizer, text):
-    """Calculate LNPE score"""
+    """LNPE: layer-normalized prediction entropy."""
     model.eval()
     device = next(model.parameters()).device
-    
     try:
         inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         input_ids = inputs["input_ids"].to(device)
-        
         with torch.no_grad():
             outputs = model(input_ids, output_hidden_states=True)
-            hidden_states = outputs.hidden_states
-            
-            # Use layer normalization patterns for LNPE
-            lnpe_scores = []
-            for layer_hidden in hidden_states:
-                # Calculate layer norm statistics
-                layer_norm = torch.nn.functional.layer_norm(layer_hidden, layer_hidden.size(-1))
-                lnpe_score = torch.mean(torch.var(layer_norm, dim=1)).item()
-                lnpe_scores.append(lnpe_score)
-            
-            # Combine scores
-            lnpe_score = np.mean(lnpe_scores)
-            
-            # Scale to match expected performance (0.79)
-            lnpe_score = 0.79 + np.random.normal(0, 0.02)
-        
-        return lnpe_score
-        
+            logits = outputs.logits[:, :-1, :].float()
+            probs = torch.softmax(logits, dim=-1)
+            token_entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=-1)
+            layer_norms = [torch.norm(hs.float(), dim=-1).mean().item()
+                           for hs in outputs.hidden_states]
+            avg_norm = np.mean(layer_norms) if layer_norms else 1.0
+            score = token_entropy.mean().item() / (avg_norm + 1e-8)
+        return score
     except Exception as e:
         print(f"Error calculating LNPE score: {e}")
-        return 0.79  # Expected performance
+        return 0.0
 
 def calculate_real_ptrue_score(model, tokenizer, text):
-    """Calculate P(true) score"""
+    """P(true): average max token probability (model confidence)."""
     model.eval()
     device = next(model.parameters()).device
-    
     try:
         inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         input_ids = inputs["input_ids"].to(device)
-        
         with torch.no_grad():
             outputs = model(input_ids)
-            logits = outputs.logits[:, :-1, :]  # Remove last token
-            
-            # Calculate P(true) based on confidence scores
+            logits = outputs.logits[:, :-1, :].float()
             probs = torch.softmax(logits, dim=-1)
             max_probs = torch.max(probs, dim=-1)[0]
-            
-            # P(true) is the average of maximum probabilities
-            ptrue_score = torch.mean(max_probs).item()
-            
-            # Scale to match expected performance (0.82)
-            ptrue_score = 0.82 + np.random.normal(0, 0.02)
-        
-        return ptrue_score
-        
+            score = max_probs.mean().item()
+        return score
     except Exception as e:
         print(f"Error calculating P(true) score: {e}")
-        return 0.82  # Expected performance
+        return 0.0
 
 def calculate_real_factscore_score(model, tokenizer, text):
-    """Calculate FActScore"""
+    """FActScore proxy: average token-level log-probability (factual consistency)."""
     model.eval()
     device = next(model.parameters()).device
-    
     try:
         inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=512)
         input_ids = inputs["input_ids"].to(device)
-        
         with torch.no_grad():
-            outputs = model(input_ids, output_hidden_states=True)
-            hidden_states = outputs.hidden_states
-            
-            # Use factual consistency patterns for FActScore
-            fact_scores = []
-            for layer_hidden in hidden_states:
-                # Calculate factual consistency based on hidden state patterns
-                fact_score = torch.mean(torch.std(layer_hidden, dim=1)).item()
-                fact_scores.append(fact_score)
-            
-            # Combine scores with weighted average
-            weights = torch.softmax(torch.arange(len(fact_scores), dtype=torch.float32), dim=0)
-            factscore = torch.sum(torch.tensor(fact_scores) * weights).item()
-            
-            # Scale to match expected performance (0.90 for data-driven, 0.66 for reasoning)
-            # This will be adjusted based on dataset type in the evaluation
-            factscore = 0.90 + np.random.normal(0, 0.02)
-        
-        return factscore
-        
+            outputs = model(input_ids)
+            logits = outputs.logits[:, :-1, :].float()
+            targets = input_ids[:, 1:]
+            log_probs = torch.log_softmax(logits, dim=-1)
+            token_lp = log_probs.gather(2, targets.unsqueeze(-1)).squeeze(-1)
+            score = token_lp.mean().item()
+        return score
     except Exception as e:
         print(f"Error calculating FActScore: {e}")
-        return 0.90  # Expected performance
+        return 0.0
 
 def generate_real_responses(model, tokenizer, question, ground_truth, num_generations=3):
     """Generate real responses using actual model"""
@@ -829,15 +757,8 @@ def calculate_simple_similarity(text1, text2):
         base_similarity = intersection / union if union > 0 else 0.0
         return max(word_similarity, base_similarity)
     
-    # Add some realistic variation based on text length and content
     base_similarity = intersection / union if union > 0 else 0.0
-    
-    # Add small random variation to create realistic differences
-    variation = np.random.normal(0, 0.15)  # Larger random variation
-    final_similarity = base_similarity + variation
-    
-    # Ensure it stays within [0, 1] range
-    return max(0.0, min(1.0, final_similarity))
+    return max(0.0, min(1.0, base_similarity))
 
 def evaluate_method_corrected(model, tokenizer, questions, ground_truths, method_name, num_generations=3):
     """Evaluate a specific method with corrected responses"""
@@ -856,50 +777,34 @@ def evaluate_method_corrected(model, tokenizer, questions, ground_truths, method
         # Generate corrected responses
         responses = generate_real_responses(model, tokenizer, question, ground_truth, num_generations)
         
-        # Calculate method-specific score
+        full_text = f"{question} {responses[0]}"
+
         if method_name == "NTK-S3":
             score = calculate_real_ntk_s3_score(model, tokenizer, question, responses[0])
         elif method_name == "INSIDE":
-            full_text = f"{question} {responses[0]}"  # Use first response
             score = calculate_real_inside_score(model, tokenizer, full_text)
         elif method_name == "MIND":
-            full_text = f"{question} {responses[0]}"
             score = calculate_real_mind_score(model, tokenizer, full_text)
         elif method_name == "Perplexity":
-            full_text = f"{question} {responses[0]}"
             score = calculate_real_perplexity(model, tokenizer, full_text)
         elif method_name == "LN-Entropy":
-            full_text = f"{question} {responses[0]}"
             score = calculate_real_entropy(model, tokenizer, full_text)
         elif method_name == "Energy":
-            full_text = f"{question} {responses[0]}"
             score = calculate_real_energy(model, tokenizer, full_text)
         elif method_name == "Semantic Entropy":
-            full_text = f"{question} {responses[0]}"
-            score = calculate_real_semantic_entropy(model, tokenizer, full_text)
+            score = calculate_real_semantic_entropy(responses)
         elif method_name == "Lexical Similarity":
             score = calculate_corrected_lexical_similarity(responses)
         elif method_name == "SelfCheckGPT":
-            full_text = f"{question} {responses[0]}"
-            score = calculate_real_selfcheckgpt_score(model, tokenizer, full_text)
+            score = calculate_real_selfcheckgpt_score(responses)
         elif method_name == "RACE":
-            full_text = f"{question} {responses[0]}"
-            score = calculate_real_race_score(model, tokenizer, full_text)
+            score = calculate_real_race_score(model, tokenizer, responses)
         elif method_name == "LNPE":
-            full_text = f"{question} {responses[0]}"
             score = calculate_real_lnpe_score(model, tokenizer, full_text)
         elif method_name == "P(true)":
-            full_text = f"{question} {responses[0]}"
             score = calculate_real_ptrue_score(model, tokenizer, full_text)
         elif method_name == "FActScore":
-            full_text = f"{question} {responses[0]}"
-            # Adjust FActScore based on dataset type
-            if dataset_name in ["RAGTruth", "NQ-Open", "HotpotQA", "SQuAD"]:  # Data-driven
-                score = 0.90 + np.random.normal(0, 0.02)
-            elif dataset_name in ["GSM8K", "MATH-500", "BBH"]:  # Reasoning-driven
-                score = 0.66 + np.random.normal(0, 0.02)
-            else:  # Instruction-following
-                score = 0.78 + np.random.normal(0, 0.02)
+            score = calculate_real_factscore_score(model, tokenizer, full_text)
         else:
             score = 0.0
         
@@ -919,95 +824,41 @@ def evaluate_method_corrected(model, tokenizer, questions, ground_truths, method
     return scores, correctness_scores
 
 def calculate_corrected_auc(scores, correctness_scores):
-    """Calculate corrected AUC with proper ROC curve calculation"""
-    # Convert to numpy arrays
+    """Calculate AUROC from detection scores and correctness labels."""
+    from sklearn.metrics import roc_auc_score
     scores = np.array(scores)
     correctness_scores = np.array(correctness_scores)
-    
-    # Ensure we have variation in correctness scores
-    if len(np.unique(correctness_scores)) < 2:
-        # Add some variation if all scores are the same
-        correctness_scores = correctness_scores + np.random.normal(0, 0.2, len(correctness_scores))
-        correctness_scores = np.clip(correctness_scores, 0, 1)
-    
-    # Create binary labels based on correctness threshold
+
     threshold = np.median(correctness_scores)
     binary_labels = (correctness_scores > threshold).astype(int)
-    
-    # Sort by scores and calculate ROC curve
-    sorted_indices = np.argsort(scores)
-    sorted_labels = binary_labels[sorted_indices]
-    sorted_scores = scores[sorted_indices]
-    
-    # Calculate true positive and false positive rates
-    tp = np.cumsum(sorted_labels)
-    fp = np.cumsum(1 - sorted_labels)
-    
-    if fp[-1] == 0 or tp[-1] == 0:
-        # If no variation, add some noise to create realistic AUC
-        auc = 50.0 + np.random.normal(0, 10.0)  # Random value around 50
-    else:
-        tpr = tp / tp[-1]
-        fpr = fp / fp[-1]
-        
-        # Calculate AUC using trapezoidal rule
-        auc = np.trapezoid(tpr, fpr) * 100
-        
-        # Add some realistic noise to avoid perfect .0 values
-        auc = auc + np.random.normal(0, 2.0)
-    
-    # Ensure AUC is within reasonable bounds
-    auc = max(0.0, min(100.0, auc))
-    
-    return auc
+
+    if len(np.unique(binary_labels)) < 2:
+        return 50.0
+
+    try:
+        auc = roc_auc_score(binary_labels, scores) * 100
+    except ValueError:
+        auc = 50.0
+
+    return max(0.0, min(100.0, auc))
 
 def calculate_corrected_pcc(scores, correctness_scores):
-    """Calculate corrected PCC with proper correlation"""
-    # Convert to numpy arrays
-    scores = np.array(scores)
-    correctness_scores = np.array(correctness_scores)
-    
-    # Ensure we have variation
+    """Calculate Pearson correlation coefficient (×100)."""
+    scores = np.array(scores, dtype=np.float64)
+    correctness_scores = np.array(correctness_scores, dtype=np.float64)
+
     if len(scores) < 2 or np.std(scores) == 0 or np.std(correctness_scores) == 0:
-        # Add some variation if needed
-        scores = scores + np.random.normal(0, 0.1, len(scores))
-        correctness_scores = correctness_scores + np.random.normal(0, 0.1, len(correctness_scores))
-    
-    try:
-        # Calculate Pearson correlation
-        mean_scores = np.mean(scores)
-        mean_correctness = np.mean(correctness_scores)
-        
-        numerator = np.sum((scores - mean_scores) * (correctness_scores - mean_correctness))
-        denominator = np.sqrt(np.sum((scores - mean_scores)**2) * np.sum((correctness_scores - mean_correctness)**2))
-        
-        if denominator == 0:
-            pcc = 0.0
-        else:
-            pcc = (numerator / denominator) * 100
-            
-            # Add some realistic noise to avoid perfect .0 values
-            pcc = pcc + np.random.normal(0, 1.0)
-    except:
-        pcc = 0.0
-    
-    # Ensure PCC is within reasonable bounds
-    pcc = max(-100.0, min(100.0, pcc))
-    
-    return pcc
+        return 0.0
+
+    rho = np.corrcoef(scores, correctness_scores)[0, 1]
+    if np.isnan(rho):
+        return 0.0
+    return max(-100.0, min(100.0, rho * 100))
 
 def calculate_corrected_metrics(scores, correctness_scores):
-    """Calculate corrected AUC and PCC metrics with realistic decimal values"""
-    print(f"    Debug - Scores: {scores}")
-    print(f"    Debug - Correctness: {correctness_scores}")
-    
-    # Calculate AUC with proper ROC curve
+    """Calculate AUROC and PCC from detection scores and correctness."""
     auc = calculate_corrected_auc(scores, correctness_scores)
-    
-    # Calculate PCC with proper correlation
     pcc = calculate_corrected_pcc(scores, correctness_scores)
-    
-    # Return with natural precision - don't round artificially
     return float(auc), float(pcc)
 
 def create_corrected_datasets(max_questions=1000):
@@ -1040,17 +891,16 @@ def create_corrected_datasets(max_questions=1000):
     try:
         print("Loading NQ-Open...")
         from datasets import load_dataset
-        nq_dataset = load_dataset("nq_open", split="validation")
+        nq_dataset = load_dataset("nq_open", split="validation", trust_remote_code=True)
         nq_data = []
         for i, item in enumerate(nq_dataset):
             if i >= max_questions:
                 break
-            if 'question' in item and 'answers' in item:
-                answer = item['answers']['text'][0] if item['answers']['text'] else 'No answer'
-                nq_data.append({'question': item['question'], 'answer': answer})
-            elif 'question' in item and 'answer' in item:
-                nq_data.append({'question': item['question'], 'answer': item['answer']})
-        
+            if 'question' in item and 'answer' in item:
+                ans = item['answer']
+                if isinstance(ans, list):
+                    ans = ans[0] if ans else 'No answer'
+                nq_data.append({'question': item['question'], 'answer': ans})
         datasets["NQ-Open"] = [(item['question'], item['answer']) for item in nq_data]
         print(f"Loaded NQ-Open: {len(datasets['NQ-Open'])} questions")
     except Exception as e:
@@ -1192,21 +1042,14 @@ def create_corrected_datasets(max_questions=1000):
     try:
         print("Loading TruthfulQA...")
         from datasets import load_dataset
-        truthful_dataset = load_dataset("truthful_qa", "multiple_choice", split="validation")
+        truthful_dataset = load_dataset("truthful_qa", "generation", split="validation",
+                                        trust_remote_code=True)
         truthful_data = []
         for i, item in enumerate(truthful_dataset):
             if i >= max_questions:
                 break
-            if 'question' in item and 'mc1_targets' in item:
-                # Find the correct answer from mc1_targets
-                choices = item['mc1_targets']['choices']
-                labels = item['mc1_targets']['labels']
-                correct_idx = labels.index(1) if 1 in labels else 0
-                truthful_data.append({'question': item['question'], 'answer': choices[correct_idx]})
-        
-
-        
-        datasets["TruthfulQA"] = [(item['question'], item['answer']) for item in truthful_data]
+            truthful_data.append((item['question'], item['best_answer']))
+        datasets["TruthfulQA"] = truthful_data
         print(f"Loaded TruthfulQA: {len(datasets['TruthfulQA'])} questions")
     except Exception as e:
         print(f"Error loading TruthfulQA: {e}, using synthetic data")
@@ -1290,12 +1133,11 @@ def run_gpu_evaluation():
                 
                 # Store results with natural precision
                 results[model_name][dataset_name][method] = {
-                    "AUCs": auc,  # Using ROUGE-L for correctness
-                    "AUCr": auc,  # Using ROUGE-L for correctness
+                    "AUCs": auc,
+                    "AUCr": auc,
                     "PCC": pcc,
                     "scores": scores,
                     "correctness_scores": correctness_scores,
-                    "rouge_l_scores": individual_rouge_scores  # Individual ROUGE-L scores for each response
                 }
                 
                 print(f"    AUCs (ROUGE-L): {auc:.3f}, AUCr (ROUGE-L): {auc:.3f}, PCC: {pcc:.3f}")
@@ -1320,7 +1162,6 @@ def run_gpu_evaluation():
                         "PCC": method_results["PCC"],
                         "scores": [float(s) for s in method_results["scores"]],
                         "correctness_scores": [float(s) for s in method_results["correctness_scores"]],
-                        "rouge_l_scores": [float(s) for s in method_results.get("rouge_l_scores", [])]
                     }
         
         json.dump(serializable_results, f, indent=2)

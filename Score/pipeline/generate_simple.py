@@ -5,6 +5,7 @@ import os
 import copy
 import time
 
+import numpy as np
 import pandas as pd
 import torch
 import tqdm
@@ -150,7 +151,7 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
             predictive_entropy = get_lenghthNormalized_entropy(scores, num_tokens) 
             hidden_states = dict_outputs.hidden_states
             eigenIndicator, eigenValue = getEigenIndicator_v0(hidden_states, num_tokens, device)
-        num_gens -= len(generation)
+            num_gens -= len(generation)
 
         generations = torch.nested.nested_tensor(generations).to_padded_tensor(tokenizer.eos_token_id)
         generations = generations.reshape(-1, generations.shape[-1])[:args.num_generations_per_prompt]
@@ -166,21 +167,30 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
         except:
             sent_bertscore = 0.0  # Fallback if BERTScore fails
         
-        # Simplified eigen indicator without sentence-transformers
         try:
-            eigenIndicatorOutput = 0.0  # Placeholder
-            eigenValue_O = 0.0  # Placeholder
-        except:
+            gen_embeddings = []
+            for gen_ids in generations:
+                gen_input = gen_ids.unsqueeze(0).to(device)
+                with torch.no_grad():
+                    gen_out = model(gen_input, output_hidden_states=True)
+                    emb = gen_out.hidden_states[-1].squeeze(0).float().mean(dim=0)
+                    gen_embeddings.append(emb.cpu().numpy())
+            gen_embeddings = np.array(gen_embeddings)
+            alpha_reg = 1e-3
+            cov_mat = np.cov(gen_embeddings)
+            if cov_mat.ndim < 2:
+                cov_mat = np.array([[cov_mat]])
+            cov_mat = cov_mat + alpha_reg * np.eye(cov_mat.shape[0])
+            _, s_vals, _ = np.linalg.svd(cov_mat)
+            eigenIndicatorOutput = float(np.mean(np.log10(np.clip(s_vals, 1e-30, None))))
+
+            emb_var = np.var(gen_embeddings, axis=0).mean()
+            residuals = [float(np.linalg.norm(e)) for e in gen_embeddings]
+            amp = float(np.exp(emb_var))
+            ntks3IndicatorOutput = float(np.mean([r * amp for r in residuals]))
+        except Exception:
             eigenIndicatorOutput = 0.0
-            eigenValue_O = 0.0
-            
-        # Simplified NTK-S3 score without sentence-transformers
-        try:
-            ntks3IndicatorOutput = 0.0  # Placeholder
-            ntks3InfoOutput = {}  # Placeholder
-        except:
             ntks3IndicatorOutput = 0.0
-            ntks3InfoOutput = {}
 
         # remember the data
         curr_seq = dict(
