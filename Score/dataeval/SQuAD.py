@@ -87,7 +87,7 @@ def _generate_config(tokenizer):
         eos_token_id = [tokenizer.encode(_)[-1] for _ in ['.', '\n']] + [29889]  # seems to be '.' as well
         #eos_token_id = [tokenizer(_)['input_ids'] for _ in ['\n', ',', '.']]
     elif tokenizer.__class__.__name__ == 'GPT2Tokenizer':
-        eos_token_id = [tokenizer.encode(_)[1] for _ in ['.', '\n']]
+        eos_token_id = [tokenizer.encode(_)[-1] for _ in ['.', '\n']]
     elif tokenizer.__class__.__name__ == "PreTrainedTokenizerFast":
         eos_token_id = [tokenizer.encode(_)[-1] for _ in ['.', '\n']] + [29889] 
     else:
@@ -95,7 +95,7 @@ def _generate_config(tokenizer):
     eos_token_id = list(set(eos_token_id + [getattr(tokenizer, 'eos_token_id', 0)]))
     question_framing_ids = ['Question:', ' Question:', '\n', 'Answer:', ' Answer:', 'Q:']
     try:
-        question_framing_ids = [[tokenizer(eos_token)['input_ids'][1]] for eos_token in question_framing_ids]
+        question_framing_ids = [[tokenizer(eos_token)['input_ids'][-1]] for eos_token in question_framing_ids]
     except Exception:
         question_framing_ids = []
     return dict(eos_token_id=eos_token_id, bad_words_ids=question_framing_ids if question_framing_ids else None)

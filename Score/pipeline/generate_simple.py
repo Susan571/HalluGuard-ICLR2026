@@ -115,6 +115,10 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
         generation_config = {k: v for k, v in generation_config.items() if v is not None}
         generation_config = transformers.GenerationConfig(**generation_config)
         
+        perplexity = 0.0
+        energy_score = 0.0
+        most_likely_generations = None
+
         if args.decoding_method == 'beam_search':
             raise NotImplementedError()
         elif args.decoding_method == 'greedy':
@@ -155,8 +159,20 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
 
         generations = torch.nested.nested_tensor(generations).to_padded_tensor(tokenizer.eos_token_id)
         generations = generations.reshape(-1, generations.shape[-1])[:args.num_generations_per_prompt]
-        if 'most_likely_generations' not in locals():
+        if most_likely_generations is None:
             most_likely_generations = generations[0]
+        if perplexity == 0.0 and energy_score == 0.0:
+            try:
+                with torch.no_grad():
+                    greedy_out = model.generate(input_ids, attention_mask=attention_mask,
+                                                num_beams=1, do_sample=False,
+                                                generation_config=generation_config,
+                                                output_scores=True,
+                                                return_dict_in_generate=True)
+                    perplexity = get_perplexity_score(greedy_out.scores)
+                    energy_score = get_energy_score(greedy_out.scores)
+            except Exception:
+                pass
         best_generated_text = tokenizer.decode(most_likely_generations, skip_special_tokens=True)
         generated_texts = [tokenizer.decode(_, skip_special_tokens=True) for _ in generations]
         lexical_similarity = getLexicalSim(generated_texts)

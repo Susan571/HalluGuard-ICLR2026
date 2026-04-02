@@ -36,7 +36,7 @@ def _generate_config(tokenizer):
     if tokenizer.__class__.__name__ == 'LlamaTokenizer':
         eos_token_id = [tokenizer(_)['input_ids'][-1] for _ in ['\n', ',', '.']]
     elif tokenizer.__class__.__name__ == 'GPT2Tokenizer':
-        eos_token_id = [tokenizer.encode(_)[1] for _ in ['\n', ',', '.']]
+        eos_token_id = [tokenizer.encode(_)[-1] for _ in ['\n', ',', '.']]
     elif tokenizer.__class__.__name__ == "PreTrainedTokenizerFast":
         eos_token_id = [tokenizer(_)['input_ids'][-1] for _ in ['\n', ',', '.']]
     else:

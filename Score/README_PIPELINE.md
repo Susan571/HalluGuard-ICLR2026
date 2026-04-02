@@ -51,7 +51,7 @@ PYTHONPATH=. python pipeline/generate_simple.py --model gpt2 --dataset coqa --de
 | `--device` | `cuda` | `cuda` or `cpu` |
 | `--num_generations_per_prompt` | 10 | Number of sampled generations per question |
 | `--fraction_of_data_to_use` | 1.0 | Fraction of dataset (e.g. 0.01 for a quick run) |
-| `--decoding_method` | `greedy` | `greedy` or non-greedy uses sampling with `temperature`, `top_p`, `top_k`. |
+| `--decoding_method` | `greedy` | `greedy` runs a greedy pass for perplexity/energy, then always generates N stochastic samples. This is the recommended setting. |
 | `--temperature` | 0.5 | Sampling temperature when not greedy |
 | `--seed` | 2023 | Random seed |
 | `--halluguard_layer` | -1 | Hidden layer index for σ_max proxy (default last layer) |

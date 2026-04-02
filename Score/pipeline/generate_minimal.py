@@ -111,6 +111,10 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
         generation_config = {k: v for k, v in generation_config.items() if v is not None}
         generation_config = transformers.GenerationConfig(**generation_config)
         
+        perplexity = 0.0
+        energy_score = 0.0
+        most_likely_generations = None
+
         if args.decoding_method == 'beam_search':
             raise NotImplementedError()
         elif args.decoding_method == 'greedy':
@@ -151,7 +155,7 @@ def get_generations(model_name:str, args, seed=1, old_sequences=None, max_num_ge
 
         generations = torch.nested.nested_tensor(generations).to_padded_tensor(tokenizer.eos_token_id)
         generations = generations.reshape(-1, generations.shape[-1])[:args.num_generations_per_prompt]
-        if 'most_likely_generations' not in locals():
+        if most_likely_generations is None:
             most_likely_generations = generations[0]
         best_generated_text = tokenizer.decode(most_likely_generations, skip_special_tokens=True)
         generated_texts = [tokenizer.decode(_, skip_special_tokens=True) for _ in generations]

@@ -62,7 +62,7 @@ def _generate_config(tokenizer):
     if tokenizer.__class__.__name__ == 'LlamaTokenizer':
         eos_token_id = [tokenizer.encode(_)[-1] for _ in ['.', '\n']] + [29889]
     elif tokenizer.__class__.__name__ == 'GPT2Tokenizer':
-        eos_token_id = [tokenizer.encode(_)[1] for _ in ['.', '\n']]
+        eos_token_id = [tokenizer.encode(_)[-1] for _ in ['.', '\n']]
     elif tokenizer.__class__.__name__ == "PreTrainedTokenizerFast":
         eos_token_id = [tokenizer(_)['input_ids'][-1] for _ in ['\n', ',', '.']]
     else:
@@ -70,7 +70,7 @@ def _generate_config(tokenizer):
 
     eos_token_id += [tokenizer.eos_token_id]
     question_framing_ids = ['Question:', ' Question:', '\n', 'Answer:', ' Answer:', 'Q:']
-    question_framing_ids = [[tokenizer(eos_token)['input_ids'][1]] for eos_token in question_framing_ids]
+    question_framing_ids = [[tokenizer(eos_token)['input_ids'][-1]] for eos_token in question_framing_ids]
 
     return dict(eos_token_id=eos_token_id, bad_words_ids=question_framing_ids)
 

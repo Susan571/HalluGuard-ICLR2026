@@ -151,26 +151,57 @@ cd Score
 pip install -r requirements.txt
 ```
 
-### Run pipeline (paper HALLUGUARD score)
+### Reproducing results (e.g. GPT-2 + TruthfulQA)
 
-From the repo root or from `Score/`:
+Two evaluation routes are available. Both produce end-to-end results.
+
+#### Route 1 -- Pipeline + evalFunc (recommended)
+
+**Step 1: Generate.** From the repo root:
 
 ```bash
-./Score/run_pipeline.sh --model gpt2 --dataset coqa --device cuda --num_generations_per_prompt 2 --fraction_of_data_to_use 0.01
+cd Score
+python pipeline/generate_simple.py \
+  --model gpt2 \
+  --dataset TruthfulQA \
+  --device cuda \
+  --num_generations_per_prompt 10 \
+  --temperature 0.5 \
+  --top_p 0.99 \
+  --top_k 10
 ```
 
-Or from `Score/` with `PYTHONPATH=. python pipeline/generate_simple.py ...`. The pipeline computes the paper score (det(K) + log σ_max − log κ²) via `halluguard_true.py`.
+The default `--decoding_method greedy` runs a greedy pass first (for perplexity / energy baselines), then generates N stochastic samples (for diversity metrics and HalluGuard). Results are saved to `Score/data/output/gpt2_TruthfulQA_0/0.pkl`.
 
-### Evaluation scripts
+**Step 2: Evaluate.** Set `file_name` in `Score/func/evalFunc.py` to point at the pickle, then:
 
-- **GPU benchmarks:** `Score/gpu_evaluation_all.py`, `Score/gpu_evaluation_llm.py` — NTK-S3 uses the true HALLUGUARD score.
-- **Evaluation:** `Score/evaluation.py` — same paper-aligned score.
+```bash
+cd Score/func
+python evalFunc.py
+```
 
-Put dataset files under `Score/data/datasets/` (e.g. CoQA: `coqa-dev-v1.0.json`). See `Score/README_PIPELINE.md` for options.
+This reports **AUROC, F1, TPR@5%FPR, and TPR@10%FPR** for every detection method.
+
+#### Route 2 -- gpu\_evaluation\_all.py (standalone)
+
+Runs generation and evaluation in a single script:
+
+```bash
+python Score/gpu_evaluation_all.py \
+  --models gpt2 \
+  --datasets TruthfulQA \
+  --device cuda \
+  --num_generations 10
+```
+
+#### Other datasets and models
+
+Replace `--dataset` / `--datasets` with `coqa`, `SQuAD`, `nq_open`, `triviaqa`, or `TruthfulQA`. Replace `--model` / `--models` with any HuggingFace causal LM (e.g. `meta-llama/Llama-2-7b-hf`, `facebook/opt-6.7b`). TruthfulQA and CoQA are downloaded automatically from HuggingFace; for other datasets place the files under `Score/data/datasets/`. See `Score/README_PIPELINE.md` for the full argument reference.
 
 ### Score-guided inference (beam search)
 
-From `Beam Search/`, use the NTK reward model (paper formula) in beam search: `reward_model/ntk_reward.py`, `run/run_score.py`. The reward model imports `halluguard_true` from the repo’s `Score` folder; the repo root must be the parent of both `Score/` and `Beam Search/`.
+From `Beam Search/`, use the NTK reward model in beam search: `reward_model/ntk_reward.py`, `run/run_score.py`. The reward model imports `halluguard_true` from the `Score/` folder.
+
 
 ---
 
