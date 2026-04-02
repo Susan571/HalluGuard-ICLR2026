@@ -262,9 +262,7 @@ print("Model loaded successfully")
                     for layer_idx in range(12):  # Simulate 12 layers
                         x = self.transformer(x)
                         if output_hidden_states:
-                            # Add some variation and richness to hidden states for better NTK-S3 scores
-                            enhanced_x = x + torch.randn_like(x) * 0.1 * (layer_idx + 1)  # Layer-dependent enhancement
-                            hidden_states.append(enhanced_x)
+                            hidden_states.append(x.clone())
                     
                     logits = self.output(x)
                     

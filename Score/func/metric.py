@@ -378,7 +378,7 @@ def getEigenIndicator_v1(hidden_states, num_tokens):
                 continue
             last_embeddings[ind,:] += hidden_states[ind1+1][selected_layer][ind,0,:]
         last_embeddings[ind,:] = last_embeddings[ind,:]/(num_tokens[ind]-1)
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -397,7 +397,7 @@ def getEigenScore(hidden_states, num_tokens):
                 continue
             last_embeddings[ind,:] += hidden_states[ind1+1][selected_layer][ind,0,:]
         last_embeddings[ind,:] = last_embeddings[ind,:]/(num_tokens[ind]-1)
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -419,7 +419,7 @@ def getEigenIndicator_v2(hidden_states, num_tokens):
                     continue
                 last_embeddings[seq_ind,:] += hidden_states[token_ind+1][layer_ind][seq_ind,0,:]
             last_embeddings[seq_ind,:] = last_embeddings[seq_ind,:]/(num_tokens[seq_ind]-1)
-        CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+        CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
         u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
         eigenIndicator = np.mean(np.log10(s))
         LayerEigens.append(eigenIndicator)
@@ -442,7 +442,7 @@ def getEigenIndicator_v2(hidden_states, num_tokens):
 #             last_embeddings += _last_embeddings
 #         last_embeddings/=(len(hidden_states)-1)
 #         last_embeddings = last_embeddings[:,::20]
-#         CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+#         CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
 #         u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
 #         eigenIndicator = np.mean(np.log10(s))
 #         LayerEigens.append(eigenIndicator)
@@ -468,7 +468,7 @@ def getEigenIndicator_v3(hidden_states): #[num_tokens, 41, num_seq, ?, 5120]
             _last_embeddings += hidden_state[k][:,0,:]
         last_embeddings += _last_embeddings/(layer_ind_max-layer_ind_min)
     last_embeddings/=(len(hidden_states)-1)
-    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -486,7 +486,7 @@ def getEigenIndicator_v4(hidden_states): #[num_tokens, 41, num_seq, ?, 5120]
     last_embeddings/=(len(hidden_states)-1)
     last_embeddings = torch.squeeze(last_embeddings)
     last_embeddings = last_embeddings[:,::40]
-    CovMatrix = torch.cov(last_embeddings.transpose(0,1)).cpu().numpy().astype(np.float)
+    CovMatrix = torch.cov(last_embeddings.transpose(0,1)).cpu().numpy().astype(np.float64)
     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
     eigenIndicator = np.mean(np.log10(s))
     return eigenIndicator, s
@@ -620,7 +620,7 @@ def ParameterClip_v2(model):
 #         last_embeddings += _last_embeddings
 #     last_embeddings/=(len(hidden_states)-1)
 #     last_embeddings = torch.squeeze(last_embeddings)
-#     CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+#     CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
 #     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
 #     eigenIndicator = np.mean(np.log10(s))
 #     return eigenIndicator, s
@@ -634,7 +634,7 @@ def ParameterClip_v2(model):
 #     last_embeddings = torch.zeros(hidden_states[1][-1].shape[0], hidden_states[1][-1].shape[2]).to("cuda")
 #     for ind in range(hidden_states[1][-1].shape[0]):
 #         last_embeddings[ind,:] = hidden_states[num_tokens[ind]-2][-10][ind,0,:]
-#     CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+#     CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
 #     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
 #     eigenIndicator = np.mean(np.log10(s))
 #     return eigenIndicator, s
@@ -692,7 +692,7 @@ def ParameterClip_v2(model):
 #         print(_last_embeddings.shape)
 #         last_embeddings.append(_last_embeddings)
 #     last_embeddings = torch.cat(last_embeddings, dim=1)/(len(hidden_states)-1)
-#     CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+#     CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
 #     print(CovMatrix.shape)
 #     print(CovMatrix)
 
@@ -712,7 +712,7 @@ def ParameterClip_v2(model):
 #     # for hidden_state in hidden_states[1:]:
 #     for hidden_state in hidden_states[1:]:
 #         last_embeddings = hidden_state[-1][:,0,:]
-#         CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+#         CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
 #         u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
 #         eigenIndicator = eigenIndicator + 1.0*np.log(np.prod(s))
 #     eigenIndicator = eigenIndicator/(len(hidden_states)-1)
@@ -730,7 +730,7 @@ def ParameterClip_v2(model):
 #         last_embeddings += _last_embeddings
 #     last_embeddings/=(len(hidden_states)-1)
 #     last_embeddings = torch.squeeze(last_embeddings)
-#     # CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float)
+#     # CovMatrix = torch.cov(last_embeddings).cpu().numpy().astype(np.float64)
 #     RobustCov = MinCovDet().fit(np.transpose(last_embeddings.cpu().numpy()))
 #     CovMatriv = RobustCov.covariance_
 #     u, s, vT = np.linalg.svd(CovMatriv+alpha*np.eye(CovMatriv.shape[0]))
@@ -775,7 +775,7 @@ def ParameterClip_v2(model):
 #     _NonLocalFea = torch.stack(_NonLocalFea, dim=0)
 #     print(_NonLocalFea)
 #     print(_NonLocalFea.shape)
-#     CovMatrix = torch.cov(_NonLocalFea).cpu().numpy().astype(np.float)
+#     CovMatrix = torch.cov(_NonLocalFea).cpu().numpy().astype(np.float64)
 #     print(CovMatrix)
 #     u, s, vT = np.linalg.svd(CovMatrix+alpha*np.eye(CovMatrix.shape[0]))
 #     eigenIndicator = np.log10(np.prod(s))

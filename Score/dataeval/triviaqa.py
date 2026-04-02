@@ -6,7 +6,6 @@ import pickle
 
 # import config
 import datasets
-import ipdb
 import pandas as pd
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer

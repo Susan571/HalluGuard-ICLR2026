@@ -14,7 +14,7 @@ import pandas as pd
 import random
 
 # Disable problematic imports
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
+os.environ['TRANSFORMERS_OFFLINE'] = '0'
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 import torch
