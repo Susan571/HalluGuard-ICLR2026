@@ -73,8 +73,6 @@ where \(K\) is the NTK Gram matrix (over generated outputs), \(\sigma_{\max}\) i
 
 ### Technical specification (code verification)
 
-> **Implementation Note:** In the source code and benchmark tables, the HALLUGUARD metric is implemented and labeled as **NTK-S3**.
-
 The score must be assembled exactly as (per paper):
 
 ```text
@@ -195,6 +193,8 @@ python Score/gpu_evaluation_all.py \
   --device cuda \
   --num_generations 10
 ```
+
+> **Implementation Note:** In the source code, the HALLUGUARD metric is implemented and labeled as **NTK-S3**.
 
 #### Other datasets and models
 
