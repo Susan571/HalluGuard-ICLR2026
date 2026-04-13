@@ -194,6 +194,8 @@ python Score/gpu_evaluation_all.py \
   --num_generations 10
 ```
 
+> **Implementation Note:** In the source code, the HALLUGUARD metric is implemented and labeled as **NTK-S3**.
+
 #### Other datasets and models
 
 Replace `--dataset` / `--datasets` with `coqa`, `SQuAD`, `nq_open`, `triviaqa`, or `TruthfulQA`. Replace `--model` / `--models` with any HuggingFace causal LM (e.g. `meta-llama/Llama-2-7b-hf`, `facebook/opt-6.7b`). TruthfulQA and CoQA are downloaded automatically from HuggingFace; for other datasets place the files under `Score/data/datasets/`. See `Score/README_PIPELINE.md` for the full argument reference.
